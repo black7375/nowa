@@ -90,7 +90,7 @@ int stack_uninstall(struct _fibril_t * frptr)
 
   if (addr != PARAM_STACK_ADDR) {
     size_t size = PAGE_ALIGN_DOWN(frptr->stack.top) - addr;
-    SAFE_NNCALL(madvise(addr, size, MADV_DONTNEED));
+    SAFE_NNCALL(madvise(addr, size, MADV_FREE));
   }
 
   return 1;
