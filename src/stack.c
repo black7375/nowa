@@ -85,13 +85,15 @@ int stack_uninstall(struct _fibril_t * frptr)
 {
   DEBUG_ASSERT(frptr != NULL);
 
-  void * addr = frptr->stack.ptr;
   fibrili_deq.stack = NULL;
 
+#ifdef FIBRIL_USE_MADVISE
+  void * addr = frptr->stack.ptr;
   if (addr != PARAM_STACK_ADDR) {
     size_t size = PAGE_ALIGN_DOWN(frptr->stack.top) - addr;
     SAFE_NNCALL(madvise(addr, size, MADV_FREE));
   }
+#endif
 
   return 1;
 }
