@@ -32,9 +32,9 @@
 #include <stdlib.h>
 #include "test.h"
 
-#define SizeAtWhichDivideAndConquerIsMoreEfficient 64
+#define SizeAtWhichDivideAndConquerIsMoreEfficient 128
 #define SizeAtWhichNaiveAlgorithmIsMoreEfficient 16
-#define CacheBlockSizeInBytes 32
+#define CacheBlockSizeInBytes 64
 
 /* The real numbers we are using --- either double or float */
 typedef double REAL;
@@ -58,6 +58,27 @@ int n = 4096;
 #endif
 
 static REAL * A, * B, * C;
+
+#define __ALLOCATOR
+#define __PARALLEL_LOOPS1
+#define __PARALLEL_LOOPS2
+
+#ifdef __ALLOCATOR
+static char* memory;
+static size_t memory_size;
+static size_t next_alloc;
+
+#include <assert.h>
+#include <sys/mman.h>
+
+__attribute__((always_inline)) static inline
+void *alloc(size_t size) {
+  size_t s = (size + CacheBlockSizeInBytes - 1) & ~(CacheBlockSizeInBytes - 1);
+  size_t m = __atomic_fetch_add(&next_alloc, s, __ATOMIC_ACQ_REL);
+  assert((m + s) < memory_size);
+  return (void*) &(memory[m]);
+}
+#endif
 
 /*
  * Naive sequential algorithm, for comparison purposes
@@ -347,6 +368,208 @@ void MultiplyByDivideAndConquer(
 }
 
 
+#ifdef __PARALLEL_LOOPS1
+struct parallel_loop_param1 {
+  REAL *A11;
+  REAL *A12;
+  REAL *A21;
+  REAL *A22;
+  REAL *B11;
+  REAL *B12;
+  REAL *B21;
+  REAL *B22;
+  REAL *S1;
+  REAL *S2;
+  REAL *S3;
+  REAL *S4;
+  REAL *S5;
+  REAL *S6;
+  REAL *S7;
+  REAL *S8;
+  REAL *M2;
+  REAL *M5;
+  REAL *T1sMULT;
+  unsigned QuadrantSize;
+  PTR RowIncrementA;
+  PTR RowIncrementB;
+};
+
+
+fibril static void parallel_loop1(
+    struct parallel_loop_param1 *param,
+    unsigned RowL,
+    unsigned RowU)
+{
+  unsigned Column;
+  REAL *A11, *A12, *A21, *A22, *B11, *B12, *B21, *B22, *S1, *S2,
+       *S3, *S4, *S5, *S6, *S7, *S8, *M2, *M5, *T1sMULT;
+  PTR TempMatrixOffset, MatrixOffsetA, MatrixOffsetB, RowIncrementA, RowIncrementB;
+  unsigned QuadrantSize;
+
+  if (RowU - RowL > 1) {
+    unsigned RowM = (RowL + RowU) / 2;
+    fibril_t fr;
+    fibril_init(&fr);
+
+    fibril_fork(&fr, parallel_loop1,
+        (param, RowL, RowM));
+    parallel_loop1(param, RowM, RowU);
+
+    fibril_join(&fr);
+
+    return;
+  }
+
+  A11 = param->A11;
+  A12 = param->A12;
+  A21 = param->A21;
+  A22 = param->A22;
+  B11 = param->B11;
+  B12 = param->B12;
+  B21 = param->B21;
+  B22 = param->B22;
+  S1 = param->S1;
+  S2 = param->S2;
+  S3 = param->S3;
+  S4 = param->S4;
+  S5 = param->S5;
+  S6 = param->S6;
+  S7 = param->S7;
+  S8 = param->S8;
+  M2 = param->M2;
+  M5 = param->M5;
+  T1sMULT = param->T1sMULT;
+  QuadrantSize = param->QuadrantSize;
+  RowIncrementA = param->RowIncrementA;
+  RowIncrementB = param->RowIncrementB;
+
+  TempMatrixOffset = RowL * (sizeof(REAL) * QuadrantSize);
+  MatrixOffsetA = RowL * ((sizeof(REAL) * QuadrantSize) + RowIncrementA);
+  MatrixOffsetB = RowL * ((sizeof(REAL) * QuadrantSize) + RowIncrementB);
+
+  for (Column = 0; Column < QuadrantSize; Column++) {
+
+    /***********************************************************
+     ** Within this loop, the following holds for MatrixOffset:
+     ** MatrixOffset = (Row * RowWidth) + Column
+     ** (note: that the unit of the offset is number of reals)
+     ***********************************************************/
+    /* Element of Global Matrix, such as A, B, C */
+#define E(Matrix)   (* (REAL*) ( ((PTR) (Matrix)) + TempMatrixOffset ) )
+#define EA(Matrix)  (* (REAL*) ( ((PTR) (Matrix)) + MatrixOffsetA ) )
+#define EB(Matrix)  (* (REAL*) ( ((PTR) (Matrix)) + MatrixOffsetB ) )
+
+    /* FIXME - may pay to expand these out - got higher speed-ups below */
+    /* S4 = A12 - ( S2 = ( S1 = A21 + A22 ) - A11 ) */
+    E(S4) = EA(A12) - ( E(S2) = ( E(S1) = EA(A21) + EA(A22) ) - EA(A11) );
+
+    /* S8 = (S6 = B22 - ( S5 = B12 - B11 ) ) - B21 */
+    E(S8) = ( E(S6) = EB(B22) - ( E(S5) = EB(B12) - EB(B11) ) ) - EB(B21);
+
+    /* S3 = A11 - A21 */
+    E(S3) = EA(A11) - EA(A21);
+
+    /* S7 = B22 - B12 */
+    E(S7) = EB(B22) - EB(B12);
+
+    TempMatrixOffset += sizeof(REAL);
+    MatrixOffsetA += sizeof(REAL);
+    MatrixOffsetB += sizeof(REAL);
+  } /* end row loop*/
+#undef E
+#undef EA
+#undef EB
+}
+#endif
+
+
+#ifdef __PARALLEL_LOOPS2
+fibril static void parallel_loop2(
+    REAL *C11,
+    REAL *C12,
+    REAL *C21,
+    REAL *C22,
+    REAL *M2,
+    REAL *M5,
+    REAL *T1sMULT,
+    PTR RowIncrementC,
+    unsigned QuadrantSize,
+    unsigned RowL,
+    unsigned RowU)
+{
+  unsigned Column;
+
+  if (RowU - RowL > 1) {
+    unsigned RowM = (RowL + RowU) / 2;
+    fibril_t fr;
+    fibril_init(&fr);
+
+    fibril_fork(&fr, parallel_loop2,
+        (C11, C12, C21, C22, M2, M5, T1sMULT, RowIncrementC, QuadrantSize, RowL, RowM));
+    parallel_loop2(C11, C12, C21, C22, M2, M5, T1sMULT, RowIncrementC, QuadrantSize, RowM, RowU);
+
+    fibril_join(&fr);
+
+    return;
+  }
+
+  M5 += RowL * QuadrantSize;
+  M2 += RowL * QuadrantSize;
+  T1sMULT += RowL * QuadrantSize;
+  C11 += RowL * QuadrantSize;
+  C12 += RowL * QuadrantSize;
+  C21 += RowL * QuadrantSize;
+  C22 += RowL * QuadrantSize;
+  C11 = (REAL*) ( ((PTR) C11 ) + RowL * RowIncrementC);
+  C12 = (REAL*) ( ((PTR) C12 ) + RowL * RowIncrementC);
+  C21 = (REAL*) ( ((PTR) C21 ) + RowL * RowIncrementC);
+  C22 = (REAL*) ( ((PTR) C22 ) + RowL * RowIncrementC);
+
+  for (Column = 0; Column < QuadrantSize; Column += 4) {
+    REAL LocalM5_0 = *(M5);
+    REAL LocalM5_1 = *(M5+1);
+    REAL LocalM5_2 = *(M5+2);
+    REAL LocalM5_3 = *(M5+3);
+    REAL LocalM2_0 = *(M2);
+    REAL LocalM2_1 = *(M2+1);
+    REAL LocalM2_2 = *(M2+2);
+    REAL LocalM2_3 = *(M2+3);
+    REAL T1_0 = *(T1sMULT) + LocalM2_0;
+    REAL T1_1 = *(T1sMULT+1) + LocalM2_1;
+    REAL T1_2 = *(T1sMULT+2) + LocalM2_2;
+    REAL T1_3 = *(T1sMULT+3) + LocalM2_3;
+    REAL T2_0 = *(C22) + T1_0;
+    REAL T2_1 = *(C22+1) + T1_1;
+    REAL T2_2 = *(C22+2) + T1_2;
+    REAL T2_3 = *(C22+3) + T1_3;
+    (*(C11))   += LocalM2_0;
+    (*(C11+1)) += LocalM2_1;
+    (*(C11+2)) += LocalM2_2;
+    (*(C11+3)) += LocalM2_3;
+    (*(C12))   += LocalM5_0 + T1_0;
+    (*(C12+1)) += LocalM5_1 + T1_1;
+    (*(C12+2)) += LocalM5_2 + T1_2;
+    (*(C12+3)) += LocalM5_3 + T1_3;
+    (*(C22))   = LocalM5_0 + T2_0;
+    (*(C22+1)) = LocalM5_1 + T2_1;
+    (*(C22+2)) = LocalM5_2 + T2_2;
+    (*(C22+3)) = LocalM5_3 + T2_3;
+    (*(C21  )) = (- *(C21  )) + T2_0;
+    (*(C21+1)) = (- *(C21+1)) + T2_1;
+    (*(C21+2)) = (- *(C21+2)) + T2_2;
+    (*(C21+3)) = (- *(C21+3)) + T2_3;
+    M5 += 4;
+    M2 += 4;
+    T1sMULT += 4;
+    C11 += 4;
+    C12 += 4;
+    C21 += 4;
+    C22 += 4;
+  }
+}
+#endif
+
+
 /*****************************************************************************
  **
  ** OptimizedStrassenMultiply
@@ -372,7 +595,7 @@ fibril static void OptimizedStrassenMultiply(
 {
   unsigned QuadrantSize = MatrixSize >> 1; /* MatixSize / 2 */
   unsigned QuadrantSizeInBytes = sizeof(REAL) * QuadrantSize *
-    QuadrantSize + 32;
+    QuadrantSize + CacheBlockSizeInBytes;
   unsigned Column, Row;
 
   /************************************************************************
@@ -385,7 +608,7 @@ fibril static void OptimizedStrassenMultiply(
    **  --        --
    ************************************************************************/
   REAL /**A11, *B11, *C11,*/ *A12, *B12, *C12,
-       *A21, *B21, *C21, *A22, *B22, *C22;
+     *A21, *B21, *C21, *A22, *B22, *C22;
 
   REAL *S1,*S2,*S3,*S4,*S5,*S6,*S7,*S8,*M2,*M5,*T1sMULT;
 #define NumberOfVariables 11
@@ -423,10 +646,14 @@ fibril static void OptimizedStrassenMultiply(
   C22 = C21 + QuadrantSize;
 
   /* Allocate Heap Space Here */
+#ifdef __ALLOCATOR
+  StartHeap = Heap = alloc(QuadrantSizeInBytes * NumberOfVariables);
+#else
   StartHeap = Heap = malloc(QuadrantSizeInBytes * NumberOfVariables);
+#endif
   /* ensure that heap is on cache boundary */
-  if ( ((PTR) Heap) & 31)
-    Heap = (char*) ( ((PTR) Heap) + 32 - ( ((PTR) Heap) & 31) );
+  if ( ((PTR) Heap) & (CacheBlockSizeInBytes - 1))
+    Heap = (char*) ( ((PTR) Heap) + CacheBlockSizeInBytes - ( ((PTR) Heap) & (CacheBlockSizeInBytes - 1)) );
 
   /* Distribute the heap space over the variables */
   S1 = (REAL*) Heap; Heap += QuadrantSizeInBytes;
@@ -441,6 +668,15 @@ fibril static void OptimizedStrassenMultiply(
   M5 = (REAL*) Heap; Heap += QuadrantSizeInBytes;
   T1sMULT = (REAL*) Heap; Heap += QuadrantSizeInBytes;
 
+  fibril_t fr;
+  fibril_init(&fr);
+
+#ifdef __PARALLEL_LOOPS1
+  struct parallel_loop_param1 param =
+  {A11, A12, A21, A22, B11, B12, B21, B22, S1, S2, S3, S4, S5, S6, S7, S8, M2, M5,
+    T1sMULT, QuadrantSize, RowIncrementA, RowIncrementB};
+  parallel_loop1(&param, 0, QuadrantSize);
+#else
   /***************************************************************************
    ** Step through all columns row by row (vertically)
    ** (jumps in memory by RowWidth => bad locality)
@@ -485,9 +721,7 @@ fibril static void OptimizedStrassenMultiply(
     MatrixOffsetA += RowIncrementA;
     MatrixOffsetB += RowIncrementB;
   } /* end column loop */
-
-  fibril_t fr;
-  fibril_init(&fr);
+#endif
 
   /* M2 = A11 x B11 */
   fibril_fork(&fr, OptimizedStrassenMultiply,
@@ -519,6 +753,9 @@ fibril static void OptimizedStrassenMultiply(
 
   fibril_join(&fr);
 
+#ifdef __PARALLEL_LOOPS2
+  parallel_loop2(C11, C12, C21, C22, M2, M5, T1sMULT, RowIncrementC, QuadrantSize, 0, QuadrantSize);
+#else
   for (Row = 0; Row < QuadrantSize; Row++) {
     for (Column = 0; Column < QuadrantSize; Column += 4) {
       REAL LocalM5_0 = *(M5);
@@ -567,8 +804,11 @@ fibril static void OptimizedStrassenMultiply(
     C21 = (REAL*) ( ((PTR) C21 ) + RowIncrementC);
     C22 = (REAL*) ( ((PTR) C22 ) + RowIncrementC);
   }
+#endif
 
+#ifndef __ALLOCATOR
   free(StartHeap);
+#endif
 }
 
 static void strassen(int n, REAL * A, int an, REAL * B, int bn,
@@ -621,9 +861,28 @@ void init() {
 
   init_matrix(n, A, n);
   init_matrix(n, B, n);
+
+#ifdef __ALLOCATOR
+  size_t s = 0;
+  size_t ins = 1;
+  for (unsigned int i = n; i > SizeAtWhichDivideAndConquerIsMoreEfficient; i >>= 1) {
+    unsigned int m = i >> 1;
+    s += (8*m*m + 11*CacheBlockSizeInBytes) * 11*ins;
+    ins *= 7;
+  }
+  memory_size = (s + 4096) & ~4095;
+  memory = mmap(NULL, memory_size, PROT_READ | PROT_WRITE,
+      MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE,
+      -1, 0);
+  assert(memory != MAP_FAILED);
+  next_alloc = 0;
+#endif
 }
 
 void prep() {
+#ifdef __ALLOCATOR
+  next_alloc = 0;
+#endif
 }
 
 void test() {

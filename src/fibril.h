@@ -26,6 +26,10 @@
 #elif FIBRIL_TBB
 #include <fibril/tbb.h>
 
+/** OpenMP version. */
+#elif FIBRIL_OPENMP
+#include <fibril/openmp.h>
+
 /** Fibril version. */
 #else
 #include <fibril/fibrile.h>

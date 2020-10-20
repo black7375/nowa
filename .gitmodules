@@ -1,3 +1,4 @@
-[submodule "Hoard"]
-	path = Hoard
-	url = https://github.com/chaoran/Hoard
+[submodule "fibril"]
+	path = fibril
+	url = git@gitlab.cs.fau.de:i4/manycore/fibril.git
+	branch = fibril-nowa-comparision-adjustments

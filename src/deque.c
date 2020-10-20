@@ -5,6 +5,7 @@
 
 __thread deque_t fibrili_deq;
 
+#ifdef DEQUE_USE_THE
 struct _fibril_t * deque_steal(deque_t * deq)
 {
   if (deq->head >= deq->tail) return NULL;
@@ -23,19 +24,27 @@ struct _fibril_t * deque_steal(deque_t * deq)
   }
 
   struct _fibril_t * frptr = deq->buff[head];
-  DEBUG_ASSERT(frptr != NULL);
-
-  sync_lock(frptr->lock);
-  int count = frptr->count;
-
-  if (count < 0) {
-    frptr->count = 1;
-    frptr->stack.ptr = deq->stack;
-  } else {
-    frptr->count = count + 1;
-  }
 
   sync_unlock(deq->lock);
   return frptr;
 }
+
+#else
+
+struct _fibril_t * deque_steal(deque_t * deq)
+{
+  uint64_t head = fatomic_load_e(deq->head, __ATOMIC_RELAXED);
+
+start:
+  if (fatomic_load(deq->tail) <= head)
+    return NULL;
+
+  void *frptr = deq->buff[head % DEQUE_SIZE];
+
+  if (!fatomic_cas_e(deq->head, head, head + 1, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+    goto start;
+
+  return frptr;
+}
+#endif
 

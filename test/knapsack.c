@@ -29,6 +29,8 @@
 #include <limits.h>
 #include "test.h"
 
+#define __SYNC
+
 struct item {
   int value;
   int weight;
@@ -105,20 +107,29 @@ fibril static int knapsack(struct item *e, int c, int n, int v)
 
   ub = (double) v + c * e->value / e->weight;
 
+#ifdef __SYNC
+  if (ub < __atomic_load_n(&best_so_far, __ATOMIC_ACQUIRE)) {
+#else
   if (ub < best_so_far) {
+#endif
     /* prune ! */
     return INT_MIN;
   }
 
   fibril_t fr;
   fibril_init(&fr);
-  /*
-   * compute the best solution without the current item in the knapsack
-   */
-  fibril_fork(&fr, &without, knapsack, (e + 1, c, n - 1, v));
 
+#ifdef __REVERSE_EXEC_ORDER
+  /* compute the best solution with the current item in the knapsack */
+  fibril_fork(&fr, &with, knapsack, (e + 1, c - e->weight, n - 1, v + e->value));
+  /* compute the best solution without the current item in the knapsack */
+  without = knapsack(e + 1, c, n - 1, v);
+#else
+  /* compute the best solution without the current item in the knapsack */
+  fibril_fork(&fr, &without, knapsack, (e + 1, c, n - 1, v));
   /* compute the best solution with the current item in the knapsack */
   with = knapsack(e + 1, c - e->weight, n - 1, v + e->value);
+#endif
 
   fibril_join(&fr);
 
@@ -131,8 +142,16 @@ fibril static int knapsack(struct item *e, int c, int n, int v)
    * when returning, so eventually it should get the right
    * value. The program is highly non-deterministic.
    */
+#ifdef __SYNC
+  int bsf = __atomic_load_n(&best_so_far, __ATOMIC_ACQUIRE);
+  do {
+    if (bsf >= best)
+      break;
+  } while (!__atomic_compare_exchange_n(&best_so_far, &bsf, best, 0, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE));
+#else
   if (best > best_so_far)
     best_so_far = best;
+#endif
 
   return best;
 }
@@ -144,7 +163,14 @@ void init()
       (int (*)(const void *, const void *)) compare);
 }
 
-void prep() {}
+void prep()
+{
+#ifdef __SYNC
+  __atomic_store_n(&best_so_far, INT_MIN, __ATOMIC_RELEASE);
+#else
+  best_so_far = INT_MIN;
+#endif
+}
 
 void test()
 {

@@ -5,6 +5,15 @@
 #include "config.h"
 #endif
 
+#ifndef MAXRUNS
+#define MAXRUNS 10
+#endif
+
+#ifndef NUM_WARM_UP_RUNS
+#define NUM_WARM_UP_RUNS 1
+#endif
+
+
 extern void init();
 extern void prep();
 extern void test();
@@ -50,7 +59,10 @@ size_t static inline time_elapsed(size_t val)
 
 static void bench(const char * name, int nprocs)
 {
-  static int iter = 10;
+  static int iter = MAXRUNS;
+
+#ifndef CSV
+
   float times[iter];
 
   printf("===========================================\n");
@@ -64,8 +76,14 @@ static void bench(const char * name, int nprocs)
   long rss = ru.ru_maxrss;
   long flt = ru.ru_minflt;
 
-  int i;
-  for (i = 0; i < iter; ++i) {
+  /* warm up */
+  for (int i = 0; i < NUM_WARM_UP_RUNS; i++) {
+    prep();
+    test();
+  }
+
+  /* benchmark */
+  for (int i = 0; i < iter; ++i) {
     prep();
     size_t usecs = time_elapsed(0);
     test();
@@ -76,9 +94,9 @@ static void bench(const char * name, int nprocs)
 
   sort(times, iter);
 
-  float p10 = times[1];
-  float p90 = times[8];
-  float med = times[5];
+  float p10 = times[(int) (0.5f + ((float) iter / 10.0f))];
+  float p90 = times[iter - ((int) (1.5f + ((float) iter / 10.0f)))];
+  float med = times[iter / 2];
 
   getrusage(RUSAGE_SELF, &ru);
   rss = ru.ru_maxrss - rss;
@@ -92,6 +110,40 @@ static void bench(const char * name, int nprocs)
   printf("    Max RSS: %ld (KB)\n", ru.ru_maxrss);
   printf("    Runtime RSS: %ld (KB)\n", rss);
   printf("    # of page faults: %ld\n", flt);
+
+#else
+
+  struct rusage ru;
+  getrusage(RUSAGE_SELF, &ru);
+  long rss = ru.ru_maxrss;
+  long flt = ru.ru_minflt;
+
+  /* warm up */
+  for (int i = 0; i < NUM_WARM_UP_RUNS; i++) {
+    prep();
+    test();
+  }
+
+  /* benchmark */
+  for (int i = 0; i < iter; ++i) {
+    prep();
+
+    size_t usecs = time_elapsed(0);
+    test();
+    usecs = time_elapsed(usecs);
+    float times = usecs / 1000000.0;
+
+    getrusage(RUSAGE_SELF, &ru);
+    rss = ru.ru_maxrss - rss;
+    flt = ru.ru_minflt - flt;
+
+    printf("%d\t%d\t%f\t%ld\t%ld\t%ld\n", nprocs, (i + 1), times, ru.ru_maxrss, rss, flt);
+
+    rss = ru.ru_maxrss;
+    flt = ru.ru_minflt;
+  }
+
+#endif
 }
 
 #endif
@@ -106,7 +158,11 @@ int main(int argc, const char * argv[])
 
   init();
 
-  fibril_rt_init(0);
+  int nthreads = 0;
+  char *env = getenv("BENCHMARK_NPROCS");
+  if (env) nthreads = atoi(env);
+
+  fibril_rt_init(nthreads);
   int nprocs = fibril_rt_nprocs();
 
 #ifdef BENCHMARK
@@ -126,7 +182,9 @@ int main(int argc, const char * argv[])
   printf("    # of stacks used: %s\n", getenv("FIBRIL_N_STACKS"));
   printf("    # of pages used: %s\n", getenv("FIBRIL_N_PAGES"));
 #endif
+#ifndef CSV
   printf("===========================================\n");
+#endif
 #endif
 
   return verify();

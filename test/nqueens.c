@@ -60,7 +60,7 @@ int verify()
   int failed;
 
   if (failed = (m != res[n - 1])) {
-    printf("nqueens(%d)=%d (expected %d)\n", n, m, res[n - 1]);
+      fprintf(stderr, "nqueens(%d)=%d (expected %d)\n", n, m, res[n - 1]);
   }
 
   return failed;

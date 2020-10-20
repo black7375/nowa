@@ -1,0 +1,45 @@
+\usepackage{siunitx}
+
+\usepackage{tikz}
+
+\usepackage{pgfplots}
+
+\pgfplotsset{compat=1.16}
+
+\usepgfplotslibrary{groupplots}
+
+\definecolor{vibrantBlue}{HTML}{0077BB}
+\definecolor{vibrantCyan}{HTML}{33BBEE}
+\definecolor{vibrantTeal}{HTML}{009988}
+\definecolor{vibrantOrange}{HTML}{EE7733}
+\definecolor{vibrantRed}{HTML}{CC3311}
+\definecolor{vibrantMagenta}{HTML}{EE3377}
+\definecolor{vibrantGrey}{HTML}{BBBBBB}
+\pgfplotscreateplotcyclelist{vibrant}{
+	vibrantMagenta,every mark/.append style={fill=vibrantMagenta!85!black},mark=diamond*\\
+	vibrantCyan,every mark/.append style={fill=vibrantCyan!85!black},mark=square*\\
+	vibrantOrange,every mark/.append style={fill=vibrantOrange!85!black},mark=otimes*\\
+	vibrantTeal,every mark/.append style={fill=vibrantTeal!85!black},mark=triangle*\\
+	vibrantBlue,mark=star\\
+}
+
+\usepackage{xparse}
+
+\NewDocumentCommand{\ourWaitFreeAlgo}{}{Nowa}
+
+\NewDocumentCommand{\applicationName}{m}{\textsl{#1}}
+\NewDocumentCommand{\cholesky}{}{\applicationName{cholesky}}
+\NewDocumentCommand{\fft}{}{\applicationName{fft}}
+\NewDocumentCommand{\fib}{}{\applicationName{fib}}
+\NewDocumentCommand{\heat}{}{\applicationName{heat}}
+\NewDocumentCommand{\integrate}{}{\applicationName{integrate}}
+\NewDocumentCommand{\knapsack}{}{\applicationName{knapsack}}
+\NewDocumentCommand{\lu}{}{\applicationName{lu}}
+\NewDocumentCommand{\matmul}{}{\applicationName{matmul}}
+\NewDocumentCommand{\nqueens}{}{\applicationName{nqueens}}
+\NewDocumentCommand{\quicksort}{}{\applicationName{quicksort}}
+\NewDocumentCommand{\rectmul}{}{\applicationName{rectmul}}
+\NewDocumentCommand{\strassen}{}{\applicationName{strassen}}
+
+\NewDocumentCommand{\libomp}{}{\texttt{libomp}}
+\NewDocumentCommand{\libgomp}{}{\texttt{lib\emph{g}omp}}

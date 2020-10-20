@@ -6,6 +6,7 @@ pkginclude_HEADERS = \
                      cilkplus.h \
                      fibrile.h \
                      fibrili.h \
+                     openmp.h \
                      fork.h \
                      serial.h \
                      tbb.h

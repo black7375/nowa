@@ -1,37 +1,31 @@
-# fibril
+Nowa: A Wait-Free Continuation-Stealing Concurrency Platform
+============================================================
 
-## Install
+Nowa [1] is a non-blocking wait-free continuation-stealing runtime system
+of a concurrency platform. Nowa is based on Fibril [2] which can be
+found at https://github.com/chaoran/fibril/
+
+Setup
+-----
 
 ```
-./bootstrap
-./configure
-make
-make install
+./build
 ```
 
-## Test
+Test
+----
+
 ```
 make check
 ```
 
-## Benchmark
-By default, `make check` will run standard tests AND benchmarks. To run benchmarks only,
+References
+----------
 
-```
-cd benchmark
-make check
-```
+1: F. Schmaus et al., “Nowa: A Wait-Free Continuation-Stealing
+Concurrency Platform”. In: 2021 IEEE International Parallel and
+Distributed Processing Symposium (IPDPS). 2021.
 
-To run the benchmarks with serial version, do
-```
-cd benchmark/serial
-make check
-```
-
-You can also compare the performance of **fibril** with **Intel CilkPlus**, or **Intel Threading Building Blocks**. To run these versions, you have to have a compiler that supports these frameworks. GCC 5+ supports Intel CilkPlus natively. To run these benchmarks, do
-```
-cd benchmark/[cilkplus or tbb]
-make check
-```
-
-
+2: C. Yang and J. Mellor-Crummey, “A practical solution to the cactus
+stack problem”, in Proceedings of the 28th ACM Symposium on
+Parallelism in Algorithms and Architectures, ser. SPAA ’16,

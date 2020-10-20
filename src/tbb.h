@@ -29,7 +29,7 @@ extern "C" {
       PARAM_NPROCS = max_nprocs; \
     } \
   } while(0); \
-tbb::task_scheduler_init _fibril_rt_init(PARAM_NPROCS)
+tbb::task_scheduler_init _fibril_rt_init(PARAM_NPROCS, 0x100000)
 
 #define fibril_rt_exit()
 
